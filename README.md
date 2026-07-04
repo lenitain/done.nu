@@ -2,6 +2,12 @@
 
 Desktop notifications for long-running commands in Nushell.
 
+## Prerequisites
+
+- Linux: `notify-send` (libnotify)
+- macOS: `osascript` (built-in) or `terminal-notifier`
+- Sway, Niri, Mango, Kitty window detection: `jq`
+
 ## Add
 
 ```nu
