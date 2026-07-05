@@ -20,12 +20,14 @@ export-env {
         '^btm$'
     ])
     $env.DONE_NOTIFICATION_DURATION = ($env.DONE_NOTIFICATION_DURATION? | default 3000)
+    $env.DONE_NOTIFICATION_DAEMON_MODE = ($env.DONE_NOTIFICATION_DAEMON_MODE? | default false)
     $env.DONE_KITTY_PASSWORD = ($env.DONE_KITTY_PASSWORD? | default '')
 
     # — pre_execution: record current window before command ——---
 
     $env.config.hooks.pre_execution = (
         $env.config.hooks.pre_execution | default [] | append {||
+            $env.DONE_LAST_CMD = (commandline | str trim)
             $env.DONE_INITIAL_WINDOW_ID = (
                 if (which lsappinfo | is-not-empty) {
                     ^lsappinfo info -only bundleID (^lsappinfo front | str replace 'ASN:0x0-' '0x') | cut -d '"' -f4 | str trim
@@ -69,9 +71,7 @@ export-env {
                 return
             }
 
-            let last_cmd = try {
-                history | last | get command_line
-            } catch { 'unknown' }
+            let last_cmd = ($env.DONE_LAST_CMD? | default 'unknown')
 
             mut skip = false
             for p in ($env.DONE_EXCLUDE | default []) {
@@ -175,7 +175,13 @@ export-env {
                 ^osascript -e $"display notification \"($message | str replace -a '\"' '\\\"')\" with title \"($title | str replace -a '\"' '\\\"')\""
             } else if (which notify-send | is-not-empty) {
                 let urgency = if $exit_code != 0 { 'critical' } else { 'normal' }
-                ^notify-send --hint=int:transient:1 $"--urgency=($urgency)" --icon=utilities-terminal --app-name=nushell $"--expire-time=($env.DONE_NOTIFICATION_DURATION)" $title $message
+                let daemon_mode = ($env.DONE_NOTIFICATION_DAEMON_MODE? | default false)
+                mut notify_args = [$"--urgency=($urgency)", "--icon=utilities-terminal", "--app-name=nushell"]
+                if not $daemon_mode {
+                    $notify_args = ($notify_args | append $"--expire-time=($env.DONE_NOTIFICATION_DURATION)")
+                }
+                $notify_args = ($notify_args | append [$title, $message])
+                ^notify-send ...$notify_args
             } else if (^uname -a | str contains -i 'microsoft') {
                 ^powershell.exe -Command "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('nushell').Show((New-Object Windows.UI.Notifications.ToastNotification (New-Object Windows.Data.Xml.Dom.XmlDocument)))"
             } else {
@@ -203,7 +209,13 @@ export def notify [
     } else if (which osascript | is-not-empty) {
         ^osascript -e $"display notification \"($body | str replace -a '\"' '\\\"')\" with title \"($title | str replace -a '\"' '\\\"')\""
     } else if (which notify-send | is-not-empty) {
-        ^notify-send --hint=int:transient:1 --urgency=normal --icon=utilities-terminal --app-name=nushell $"--expire-time=($env.DONE_NOTIFICATION_DURATION)" $title $body
+        let daemon_mode = ($env.DONE_NOTIFICATION_DAEMON_MODE? | default false)
+        mut notify_args = ["--urgency=normal", "--icon=utilities-terminal", "--app-name=nushell"]
+        if not $daemon_mode {
+            $notify_args = ($notify_args | append $"--expire-time=($env.DONE_NOTIFICATION_DURATION)")
+        }
+        $notify_args = ($notify_args | append [$title, $body])
+        ^notify-send ...$notify_args
     } else {
         print -n "\a"
     }
@@ -214,6 +226,8 @@ export def notify [
 export def status [] {
     print $"done: threshold = ($env.DONE_MIN_DURATION)ms"
     print $"done: notification duration = ($env.DONE_NOTIFICATION_DURATION)ms"
+    let mode = if ($env.DONE_NOTIFICATION_DAEMON_MODE? | default false) { "daemon (passthrough)" } else { "override (own timeout)" }
+    print $"done: notification mode = ($mode)"
     print "done: excluded patterns:"
     for p in ($env.DONE_EXCLUDE) {
         print $"  - ($p)"
